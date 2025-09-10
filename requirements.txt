@@ -1,0 +1,23 @@
+NEW_FILE_CODE
+# Core dependencies
+fastapi>=0.68.0
+uvicorn>=0.15.0
+pydantic>=2.0.0
+
+# LangChain dependencies
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.1.0
+langgraph>=0.0.28
+
+# Model providers
+langchain-ollama>=0.1.0
+# Uncomment the following lines when adding support for other providers:
+# langchain-openai>=0.1.0
+# langchain-anthropic>=0.1.0
+
+# Tools
+tavily-python>=0.3.0
+
+# Environment management
+python-dotenv>=1.0.0

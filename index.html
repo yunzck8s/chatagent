@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>FastAPI LLM 聊天</title>
+    <style>
+        /* 页面和容器样式 */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+        }
+        #chat-container {
+            width: 100%;
+            max-width: 700px;
+            display: flex;
+            flex-direction: column;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        /* 模型选择区 */
+        #model-selection {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        #provider-select, #model-select {
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-size: 0.9em;
+        }
+        /* 聊天记录显示区 */
+        #chat-box {
+            height: 500px;
+            border: 1px solid #ccc;
+            overflow-y: scroll;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            background-color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        #chat-box p {
+            margin: 0;
+            max-width: 90%;
+            padding: 8px 12px;
+            border-radius: 12px;
+            line-height: 1.5;
+        }
+        /* 用户消息样式 */
+        p strong:first-child {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 0.9em;
+            color: #555;
+        }
+        p:has(strong:first-child:contains('你')) {
+            background-color: #dcf8c6;
+            align-self: flex-end;
+        }
+        /* 机器人消息样式 */
+        p:has(strong:first-child:contains('机器人')) {
+            background-color: #f1f0f0;
+            align-self: flex-start;
+        }
+        /* 工具消息样式 */
+        .tool-message {
+            background-color: #e3f2fd;
+            border-left: 3px solid #2196f3;
+            align-self: flex-start;
+        }
+        /* 思考过程显示区 */
+        #thought-box {
+            min-height: 2em;
+            color: #888;
+            font-style: italic;
+            padding: 5px 10px;
+            text-align: center;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .typing-indicator {
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+        /* 工具确认区 */
+        .tool-confirmation {
+            background-color: #fff3e0;
+            border: 1px solid #ff9800;
+            border-radius: 8px;
+            padding: 10px;
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tool-confirmation button {
+            padding: 5px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .confirm-btn {
+            background-color: #4caf50;
+            color: white;
+        }
+        .cancel-btn {
+            background-color: #f44336;
+            color: white;
+        }
+        /* 输入区 */
+        #input-area {
+            display: flex;
+            gap: 10px;
+        }
+        #message-input {
+            flex-grow: 1;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-size: 1em;
+        }
+        #send-button {
+            padding: 10px 20px;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        #send-button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <h1>与 LLM 对话</h1>
+        <div id="model-selection">
+            <select id="provider-select">
+                <option value="ollama">Ollama</option>
+                <!-- Add other providers as needed -->
+                <!-- <option value="openai">OpenAI</option> -->
+                <!-- <option value="anthropic">Anthropic</option> -->
+            </select>
+            <select id="model-select">
+                <option value="qwen3:8b">Qwen3 8B</option>
+                <option value="llama3:8b">Llama3 8B</option>
+            </select>
+        </div>
+        <div id="chat-box"></div>
+        <div id="thought-box"></div>
+        <div id="input-area">
+            <input type="text" id="message-input" placeholder="在这里输入你的消息...">
+            <button id="send-button">发送</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. 获取页面上的元素 ---
+        const chatBox = document.getElementById('chat-box');
+        const thoughtBox = document.getElementById('thought-box');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const providerSelect = document.getElementById('provider-select');
+        const modelSelect = document.getElementById('model-select');
+
+        // --- 2. 初始化模型选择 ---
+        async function initModelSelection() {
+            try {
+                const response = await fetch('/models');
+                const models = await response.json();
+                
+                // Clear existing options
+                modelSelect.innerHTML = '';
+                
+                // Populate models for the default provider (ollama)
+                const defaultProvider = providerSelect.value;
+                if (models[defaultProvider]) {
+                    models[defaultProvider].forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model;
+                        option.textContent = model;
+                        modelSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load models:', error);
+            }
+        }
+
+        // Update model options when provider changes
+        providerSelect.addEventListener('change', async function() {
+            try {
+                const response = await fetch('/models');
+                const models = await response.json();
+                
+                // Clear existing options
+                modelSelect.innerHTML = '';
+                
+                // Populate models for the selected provider
+                const selectedProvider = providerSelect.value;
+                if (models[selectedProvider]) {
+                    models[selectedProvider].forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model;
+                        option.textContent = model;
+                        modelSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load models:', error);
+            }
+        });
+
+        // Initialize model selection on page load
+        initModelSelection();
+
+        // --- 3. 绑定事件 ---
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // --- 4. 定义核心函数 ---
+        async function sendMessage() {
+            const userMessage = messageInput.value;
+            if (!userMessage) return;
+
+            // Get selected model
+            const selectedProvider = providerSelect.value;
+            const selectedModel = modelSelect.value;
+
+            // a. 显示用户自己的消息
+            const userP = document.createElement('p');
+            userP.innerHTML = `<strong>你:</strong> ${userMessage}`;
+            chatBox.appendChild(userP);
+            messageInput.value = '';
+            thoughtBox.innerHTML = ''; // 清空上一轮的思考
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            // b. 为机器人的回复创建一个占位符
+            const botP = document.createElement('p');
+            botP.innerHTML = '<strong>机器人:</strong> ';
+            chatBox.appendChild(botP);
+
+            // c. 使用 fetch 处理流式响应
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        text: userMessage,
+                        provider: selectedProvider,
+                        model: selectedModel
+                    }),
+                });
+
+                // d. 逐块读取数据流
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        thoughtBox.innerHTML = ''; // 对话结束，清空思考区
+                        break;
+                    }
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n\n');
+
+                    // e. 解析并根据消息类型显示内容
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const jsonData = JSON.parse(line.substring(6));
+
+                            if (jsonData.type === 'thought') {
+                                // 如果是思考，就更新思考区
+                                thoughtBox.innerHTML = jsonData.content;
+                            } else if (jsonData.type === 'content') {
+                                // 如果是回复内容，就追加到聊天框
+                                if(thoughtBox.innerHTML) thoughtBox.innerHTML = ''; // 开始回复时，清空思考区
+                                botP.innerHTML += jsonData.content;
+                                chatBox.scrollTop = chatBox.scrollHeight;
+                            } else if (jsonData.type === 'tool_request') {
+                                // 显示工具确认请求
+                                showToolConfirmation(jsonData.content, jsonData.tool_call_id);
+                            } else if (jsonData.type === 'tool_result') {
+                                // 显示工具执行结果
+                                const toolResultP = document.createElement('p');
+                                toolResultP.className = 'tool-message';
+                                toolResultP.innerHTML = `<strong>工具执行结果:</strong> ${jsonData.content}`;
+                                chatBox.appendChild(toolResultP);
+                                chatBox.scrollTop = chatBox.scrollHeight;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                botP.innerHTML += '抱歉，出错了。';
+            }
+        }
+
+        // 显示工具确认对话框
+        function showToolConfirmation(toolName, toolCallId) {
+            const confirmationDiv = document.createElement('div');
+            confirmationDiv.className = 'tool-confirmation';
+            confirmationDiv.innerHTML = `
+                <span>模型想要使用工具: <strong>${toolName}</strong></span>
+                <div>
+                    <button class="confirm-btn" onclick="confirmTool('${toolCallId}', this)">确认</button>
+                    <button class="cancel-btn" onclick="cancelTool(this)">取消</button>
+                </div>
+            `;
+            chatBox.appendChild(confirmationDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // 确认工具执行
+        function confirmTool(toolCallId, button) {
+            // 在实际应用中，这里会发送确认请求到后端
+            // 现在我们只是移除确认对话框
+            const confirmationDiv = button.closest('.tool-confirmation');
+            if (confirmationDiv) {
+                confirmationDiv.remove();
+            }
+            
+            // 显示正在执行工具的消息
+            const executingP = document.createElement('p');
+            executingP.className = 'tool-message';
+            executingP.innerHTML = '<strong>正在执行工具...</strong>';
+            chatBox.appendChild(executingP);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // 取消工具执行
+        function cancelTool(button) {
+            const confirmationDiv = button.closest('.tool-confirmation');
+            if (confirmationDiv) {
+                confirmationDiv.remove();
+            }
+            
+            // 显示取消消息
+            const cancelP = document.createElement('p');
+            cancelP.className = 'tool-message';
+            cancelP.innerHTML = '<strong>已取消工具执行</strong>';
+            chatBox.appendChild(cancelP);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+    </script>
+</body>
+</html>

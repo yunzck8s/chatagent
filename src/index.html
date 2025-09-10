@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>与 LLM 对话</title>
+    <style>
+        /* 页面和容器样式 */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+        }
+        #chat-container {
+            width: 100%;
+            max-width: 700px;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin: 0 0 1rem;
+        }
+        /* 模型选择区 */
+        #model-selection {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        #provider-select, #model-select {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-size: 0.9em;
+            width: 100%;
+            max-width: 150px;
+        }
+        /* 聊天记录显示区 */
+        #chat-box, #thought-box {
+            height: 300px;
+            border: 1px solid #eaeaea;
+            overflow-y: scroll;
+            padding: 1rem;
+            border-radius: 8px;
+            background-color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        #chat-box p, #thought-box p {
+            margin: 0;
+            padding: 0.5rem;
+            border-radius: 8px;
+            line-height: 1.5;
+        }
+        /* 用户消息样式 */
+        p.user-message {
+            background-color: #dcf8c6;
+            align-self: flex-end;
+        }
+        /* 机器人消息样式 */
+        p.bot-message {
+            background-color: #f1f0f0;
+            align-self: flex-start;
+        }
+        /* 思考过程显示区 */
+        #thought-box {
+            margin-bottom: 1rem;
+        }
+        /* 输入区 */
+        #input-area {
+            display: flex;
+            gap: 1rem;
+        }
+        #message-input {
+            flex-grow: 1;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-size: 1em;
+        }
+        #send-button {
+            padding: 0.5rem 1rem;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        #send-button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <h1>与 LLM 对话</h1>
+        <div id="model-selection">
+            <select id="provider-select">
+                <option value="ollama">Ollama</option>
+                <!-- Add other providers as needed -->
+            </select>
+            <select id="model-select">
+                <option value="qwen3:8b">Qwen3 8B</option>
+                <!-- Add other models as needed -->
+            </select>
+        </div>
+        <div id="thought-box"></div>
+        <div id="chat-box"></div>
+        <div id="input-area">
+            <input type="text" id="message-input" placeholder="在这里输入你的消息...">
+            <button id="send-button">发送</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. 获取页面上的元素 ---
+        const chatBox = document.getElementById('chat-box');
+        const thoughtBox = document.getElementById('thought-box');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const providerSelect = document.getElementById('provider-select');
+        const modelSelect = document.getElementById('model-select');
+
+        // --- 2. 初始化模型选择 ---
+        async function initModelSelection() {
+            try {
+                const response = await fetch('/models');
+                const models = await response.json();
+                
+                // Clear existing options
+                modelSelect.innerHTML = '';
+                
+                // Populate models for the default provider (ollama)
+                const defaultProvider = providerSelect.value;
+                if (models[defaultProvider]) {
+                    models[defaultProvider].forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model;
+                        option.textContent = model;
+                        modelSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load models:', error);
+            }
+        }
+
+        // Update model options when provider changes
+        providerSelect.addEventListener('change', async function() {
+            try {
+                const response = await fetch('/models');
+                const models = await response.json();
+                
+                // Clear existing options
+                modelSelect.innerHTML = '';
+                
+                // Populate models for the selected provider
+                const selectedProvider = providerSelect.value;
+                if (models[selectedProvider]) {
+                    models[selectedProvider].forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model;
+                        option.textContent = model;
+                        modelSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load models:', error);
+            }
+        });
+
+        // Initialize model selection on page load
+        initModelSelection();
+
+        // --- 3. 绑定事件 ---
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // --- 4. 定义核心函数 ---
+        async function sendMessage() {
+            const userMessage = messageInput.value;
+            if (!userMessage) return;
+
+            // Get selected model
+            const selectedProvider = providerSelect.value;
+            const selectedModel = modelSelect.value;
+
+            // a. 显示用户自己的消息
+            const userP = document.createElement('p');
+            userP.className = 'user-message';
+            userP.textContent = userMessage;
+            chatBox.appendChild(userP);
+            messageInput.value = '';
+            thoughtBox.innerHTML = ''; // 清空上一轮的思考
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            // b. 为机器人的回复创建一个占位符
+            const botP = document.createElement('p');
+            botP.className = 'bot-message';
+            chatBox.appendChild(botP);
+
+            // c. 使用 fetch 处理流式响应
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        text: userMessage,
+                        provider: selectedProvider,
+                        model: selectedModel
+                    }),
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        break;
+                    }
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const jsonData = JSON.parse(line.substring(6));
+
+                            if (jsonData.type === 'thought') {
+                                // 更新思考区
+                                const thoughtP = document.createElement('p');
+                                thoughtP.textContent = jsonData.content;
+                                thoughtBox.appendChild(thoughtP);
+                                thoughtBox.scrollTop = thoughtBox.scrollHeight;
+                            } else if (jsonData.type === 'content') {
+                                // 更新聊天框
+                                botP.textContent += jsonData.content;
+                                chatBox.scrollTop = chatBox.scrollHeight;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                botP.textContent = '抱歉，出错了。';
+            }
+        }
+    </script>
+</body>
+</html>
