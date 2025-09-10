@@ -1,55 +1,47 @@
-from typing import Dict, Any
-from langchain_ollama import ChatOllama
+# src/models/__init__.py
 
-MODEL_CONFIGS = {
+from typing import Dict, Any, Callable
+from . import ollama_provider  # 导入我们的 provider 模块
+
+# 1. 定义一个“注册表”，存放所有 provider 的初始化函数和配置
+MODEL_PROVIDERS = {
     "ollama": {
-        "qwen3:8b": {
-            "base_url": "http://192.168.1.128:11434",
-            "model": "qwen3:8b"
-        },
-        "llama3:8b": {
-            "base_url": "http://192.168.1.128:11434",
-            "model": "llama3:8b"
-        }
-    },
-    # Add configurations for other providers
+        "initializer": ollama_provider.initialize,
+        "configs": ollama_provider.PROVIDER_CONFIGS
+    }
+    # 未来想支持 openai，只需要在这里新增一行
     # "openai": {
-    #     "gpt-3.5-turbo": {
-    #         "model": "gpt-3.5-turbo"
-    #     },
-    #     "gpt-4": {
-    #         "model": "gpt-4"
-    #     }
-    # },
-    # "anthropic": {
-    #     "claude-3-haiku": {
-    #         "model": "claude-3-haiku-20240307"
-    #     },
-    #     "claude-3-sonnet": {
-    #         "model": "claude-3-sonnet-20240229"
-    #     }
+    #     "initializer": openai_provider.initialize,
+    #     "configs": openai_provider.PROVIDER_CONFIGS
     # }
 }
 
 
 def get_available_models() -> Dict[str, list]:
-    """Return a dictionary of available models grouped by provider"""
+    """
+    从注册表中动态获取所有可用的模型
+    """
     return {
-        provider: list(models.keys())
-        for provider, models in MODEL_CONFIGS.items()
+        provider: list(details["configs"].keys())
+        for provider, details in MODEL_PROVIDERS.items()
     }
 
-def init_model(provider: str, model_name: str) -> Any:
-    """Initialize a model from the given provider and model name"""
-    if provider not in MODEL_CONFIGS:
-        raise ValueError(f"Provider {provider} is not supported")
-    
-    if model_name not in MODEL_CONFIGS[provider]:
-        raise ValueError(f"Model {model_name} is not supported by {provider}")
-    
-    config = MODEL_CONFIGS[provider][model_name]
 
-    if provider == "ollama":
-        return ChatOllama(**config)
-    else:
-        raise ValueError(f"Provider {provider} is not supported")
+def init_model(provider: str, model_name: str) -> Any:
+    """
+    一个更简洁、更具扩展性的模型初始化工厂函数
+    """
+    if provider not in MODEL_PROVIDERS:
+        raise ValueError(f"Provider '{provider}' is not supported.")
+
+    provider_details = MODEL_PROVIDERS[provider]
+
+    if model_name not in provider_details["configs"]:
+        raise ValueError(f"Model '{model_name}' is not supported by {provider}.")
+
+    # 2. 从注册表中查找对应的 provider 配置和初始化函数
+    config = provider_details["configs"][model_name]
+    initializer_func = provider_details["initializer"]
+
+    # 3. 调用该 provider 自己的初始化函数
+    return initializer_func(config)
