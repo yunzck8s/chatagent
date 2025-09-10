@@ -1,13 +1,19 @@
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 import json
+import os
+from dotenv import load_dotenv
 
 # --- 从我们自己的模块中导入“零件” ---
 from src.models import init_model, get_available_models
 from src.tools.tavily import get_tavily_tool
 from src.agent.react import create_agent_graph
+
+# 加载环境变量
+load_dotenv()
 
 # --- 1. 初始化所有组件 ---
 # 初始化默认 LLM (保持向后兼容)

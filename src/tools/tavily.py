@@ -1,6 +1,8 @@
 from langchain_community.tools.tavily_search import TavilySearchResults
 import os
-os.environ["TAVILY_API_KEY"] = "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"
+
+tavily_api_key = os.getenv("TAVILY_API_KEY", "default_api_key_if_not_found")
+
 
 def get_tavily_tool():
     """初始化并返回 Tavily 搜索工具"""
