@@ -2,12 +2,18 @@
 
 from typing import Dict, Any, Callable
 from . import ollama_provider  # 导入我们的 provider 模块
+from . import deepseek_provider
 
 # 1. 定义一个“注册表”，存放所有 provider 的初始化函数和配置
 MODEL_PROVIDERS = {
     "ollama": {
         "initializer": ollama_provider.initialize,
         "configs": ollama_provider.PROVIDER_CONFIGS
+    },
+    # 2. 在这里新增一个字典项来“注册” deepseek
+    "deepseek": {
+        "initializer": deepseek_provider.initialize,
+        "configs": deepseek_provider.PROVIDER_CONFIGS
     }
     # 未来想支持 openai，只需要在这里新增一行
     # "openai": {
