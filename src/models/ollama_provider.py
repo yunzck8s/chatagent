@@ -8,8 +8,7 @@ def initialize(config: dict):
     """
     return ChatOllama(**config)
 
-# 可以在这里定义该 provider 支持的模型
-# 注意：我们将配置从 __init__.py 移到了这里
+# 将 base_url 修改为 localhost，使其更具通用性
 PROVIDER_CONFIGS = {
     "qwen3:8b": {
         "base_url": "http://192.168.1.128:11434",
