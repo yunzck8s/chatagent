@@ -17,12 +17,124 @@
         /* 新增：思考和工具结果的样式 */
         .thought-message { font-style: italic; color: #888; text-align: center; align-self: center; width: 90%; background-color: #fafafa; padding: 0.5rem; border-radius: 6px;}
         .tool-result-message { font-size: 0.9em; color: #333; background-color: #e3f2fd; border-left: 4px solid #2196f3; align-self: center; width: 90%; white-space: pre-wrap; }
+        .tool-request-message { font-size: 0.9em; color: #333; background-color: #fff3e0; border-left: 4px solid #ff9800; align-self: center; width: 90%; }
         #input-area { display: flex; gap: 1rem; }
         #message-input { flex-grow: 1; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid #ccc; font-size: 1em; }
         #send-button { padding: 0.75rem 1.5rem; border: none; background-color: #007bff; color: white; border-radius: 8px; cursor: pointer; font-size: 1em; transition: background-color 0.2s; }
         #send-button:hover { background-color: #0056b3; }
         /* 新增：加载指示器样式 */
         .loading-indicator { color: #888; font-style: italic; }
+        
+        /* 工具确认对话框样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.4);
+        }
+        
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 500px;
+            border-radius: 8px;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .modal-title {
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+        
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: black;
+        }
+        
+        .modal-body {
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .form-group input, .form-group textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        
+        .form-group textarea {
+            height: 100px;
+            font-family: monospace;
+        }
+        
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+        
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        
+        /* 错误消息样式 */
+        .error-message {
+            color: #d32f2f;
+            background-color: #ffebee;
+            border-left: 4px solid #d32f2f;
+            align-self: center;
+            width: 90%;
+            padding: 10px;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -41,6 +153,30 @@
             <button id="send-button">发送</button>
         </div>
     </div>
+    
+    <!-- 工具确认对话框 -->
+    <div id="tool-confirmation-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">工具执行确认</div>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>工具名称:</label>
+                    <input type="text" id="tool-name" readonly>
+                </div>
+                <div class="form-group">
+                    <label>参数:</label>
+                    <textarea id="tool-arguments"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="tool-reject-btn">拒绝</button>
+                <button class="btn btn-primary" id="tool-approve-btn">批准并执行</button>
+            </div>
+        </div>
+    </div>
 
 <script>
     // --- 1. 获取页面上的元素 ---
@@ -49,9 +185,18 @@
     const sendButton = document.getElementById('send-button');
     const providerSelect = document.getElementById('provider-select');
     const modelSelect = document.getElementById('model-select');
+    
+    // 工具确认对话框元素
+    const modal = document.getElementById('tool-confirmation-modal');
+    const closeModal = document.querySelector('.close');
+    const toolNameInput = document.getElementById('tool-name');
+    const toolArgumentsTextarea = document.getElementById('tool-arguments');
+    const toolApproveBtn = document.getElementById('tool-approve-btn');
+    const toolRejectBtn = document.getElementById('tool-reject-btn');
 
     let currentThreadId = null;
     let currentBotParagraph = null;  // 用于跟踪当前机器人的消息段落
+    let pendingToolCall = null;  // 用于存储待确认的工具调用信息
 
     // --- 2. 模型选择逻辑 ---
     async function updateModelOptions() {
@@ -73,6 +218,7 @@
             }
         } catch (error) {
             console.error('Failed to load models:', error);
+            appendMessage('系统', '加载模型列表失败: ' + error.message, 'error-message');
             modelSelect.innerHTML = '<option disabled>Error loading models</option>';
         }
     }
@@ -84,6 +230,25 @@
     });
     providerSelect.addEventListener('change', updateModelOptions);
     document.addEventListener('DOMContentLoaded', updateModelOptions);
+    
+    // 工具确认对话框事件
+    closeModal.onclick = function() {
+        modal.style.display = "none";
+    }
+    
+    window.onclick = function(event) {
+        if (event.target == modal) {
+            modal.style.display = "none";
+        }
+    }
+    
+    toolApproveBtn.onclick = function() {
+        confirmToolExecution(true);
+    }
+    
+    toolRejectBtn.onclick = function() {
+        confirmToolExecution(false);
+    }
 
     // --- 4. 核心发送消息函数 ---
     async function sendMessage() {
@@ -145,6 +310,12 @@
                         } else if (jsonData.type === 'tool_result') {
                             const formattedResult = `执行结果:\n${String(jsonData.content).substring(0, 300)}...`; // 截断过长的结果
                             appendMessage('工具', formattedResult, 'tool-result-message');
+                        } else if (jsonData.type === 'tool_request') {
+                            // 显示工具请求消息
+                            appendMessage('工具请求', `请求调用工具: ${jsonData.tool_name}`, 'tool-request-message');
+                            
+                            // 显示工具确认对话框
+                            showToolConfirmationDialog(jsonData);
                         }
                         scrollToBottom();
                     }
@@ -152,6 +323,7 @@
             }
         } catch (error) {
             console.error('Error:', error);
+            appendMessage('系统', '请求处理过程中发生错误: ' + error.message, 'error-message');
             botParagraphElement.innerHTML += '<span style="color: red;">抱歉，出错了。请检查后端服务是否正常。</span>';
         } finally {
             // 流结束时重置当前机器人段落引用
@@ -159,23 +331,116 @@
         }
     }
 
-    // --- 6. 辅助函数 ---
-    function appendMessage(user, text, className, isPlaceholder = false) {
-        const p = document.createElement('p');
-        p.className = className;
-        const strong = document.createElement('strong');
-        strong.textContent = `${user}: `;
-        p.appendChild(strong);
-        if (!isPlaceholder) {
-           p.innerHTML += text.replace(/\n/g, '<br>');
+    // --- 6. 工具确认对话框函数 ---
+    function showToolConfirmationDialog(toolData) {
+        console.log('Showing tool confirmation dialog with data:', toolData);
+        try {
+            pendingToolCall = {
+                tool_name: toolData.tool_name,
+                arguments: toolData.arguments,
+                thread_id: toolData.thread_id
+            };
+            
+            toolNameInput.value = toolData.tool_name;
+            toolArgumentsTextarea.value = JSON.stringify(toolData.arguments, null, 2);
+            
+            modal.style.display = "block";
+        } catch (error) {
+            console.error('Error showing tool confirmation dialog:', error);
+            appendMessage('系统', '显示工具确认对话框时出错: ' + error.message, 'error-message');
         }
-        chatBox.appendChild(p);
-        scrollToBottom();
-        return p;
+    }
+    
+    async function confirmToolExecution(approved) {
+        console.log('Confirming tool execution:', approved, 'for call:', pendingToolCall);
+        if (!pendingToolCall) {
+            console.warn('No pending tool call to confirm');
+            appendMessage('系统', '没有待确认的工具调用', 'error-message');
+            return;
+        }
+        
+        try {
+            // Create a new bot paragraph for the response
+            const botParagraph = appendMessage('机器人', '', 'bot-message', true);
+            
+            const response = await fetch('/continue_thread', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    thread_id: pendingToolCall.thread_id,
+                    approved: approved,
+                    tool_calls: approved ? [{
+                        name: pendingToolCall.tool_name,
+                        args: JSON.parse(toolArgumentsTextarea.value)
+                    }] : null
+                })
+            });
+            
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            botParagraph.innerHTML = '<strong>机器人:</strong> ';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n\n');
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const jsonData = JSON.parse(line.substring(6));
+                        
+                        if (jsonData.type === 'content') {
+                            botParagraph.innerHTML += jsonData.content.replace(/\n/g, '<br>');
+                        } else if (jsonData.type === 'tool_result') {
+                            const formattedResult = `执行结果:\n${String(jsonData.content).substring(0, 300)}...`;
+                            appendMessage('工具', formattedResult, 'tool-result-message');
+                        } else if (jsonData.type === 'thought') {
+                            appendMessage('思考', jsonData.content, 'thought-message');
+                        }
+                    }
+                }
+            }
+            
+            appendMessage('系统', `工具 ${pendingToolCall.tool_name} 已${approved ? '批准' : '拒绝'}执行`, 'thought-message');
+        } catch (error) {
+            console.error('Tool confirmation error:', error);
+            appendMessage('系统', '工具确认过程中发生错误: ' + error.message, 'error-message');
+        }
+        
+        // 关闭对话框
+        modal.style.display = "none";
+        pendingToolCall = null;
+    }
+
+    // --- 7. 辅助函数 ---
+    function appendMessage(user, text, className, isPlaceholder = false) {
+        try {
+            const p = document.createElement('p');
+            p.className = className;
+            const strong = document.createElement('strong');
+            strong.textContent = `${user}: `;
+            p.appendChild(strong);
+            if (!isPlaceholder) {
+               p.innerHTML += text.replace(/\n/g, '<br>');
+            }
+            chatBox.appendChild(p);
+            scrollToBottom();
+            return p;
+        } catch (error) {
+            console.error('Error in appendMessage:', error);
+        }
     }
 
     function scrollToBottom() {
-        chatBox.scrollTop = chatBox.scrollHeight;
+        try {
+            chatBox.scrollTop = chatBox.scrollHeight;
+        } catch (error) {
+            console.error('Error scrolling to bottom:', error);
+        }
     }
 </script>
 </body>
