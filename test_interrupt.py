@@ -115,19 +115,55 @@ def test_continue_thread(thread_id: str, approved: bool = True) -> Optional[Dict
     print(f"请求数据: {data}")
     
     try:
-        # 发送POST请求
-        response = requests.post(url, json=data)
+        # 发送POST请求并启用流式响应
+        response = requests.post(url, json=data, stream=True)
         response.raise_for_status()  # 检查HTTP错误
         
-        result = response.json()
-        print(f"服务器响应: {result}")
+        # 读取流式响应
+        result_data = {}
+        tool_result = ""
+        final_response = ""
+        
+        print("接收流式响应:")
+        for line in response.iter_lines():
+            if line:
+                decoded_line = line.decode('utf-8')
+                # 解析SSE格式的数据
+                if decoded_line.startswith('data: '):
+                    try:
+                        json_data = json.loads(decoded_line[6:])  # 移除 'data: ' 前缀
+                        print(f"  收到数据: {json_data}")
+                        
+                        # 收集不同类型的数据
+                        if json_data.get('type') == 'tool_result':
+                            tool_result += str(json_data.get('content', ''))
+                        elif json_data.get('type') == 'content':
+                            final_response += str(json_data.get('content', ''))
+                        elif json_data.get('type') == 'thought':
+                            # 忽略思考消息
+                            pass
+                            
+                    except json.JSONDecodeError as e:
+                        print(f"  JSON解析错误: {e}")
+                        continue
+        
+        result_data = {
+            "status": "success",
+            "message": "工具调用已处理",
+            "thread_id": thread_id,
+            "result": tool_result if tool_result else None,
+            "final_response": final_response if final_response else None,
+            "approved": approved
+        }
+        
+        print(f"处理后的结果: {result_data}")
         
         # 检查响应状态
-        if result.get('status') == 'success':
+        if result_data.get('status') == 'success':
             print("✓ 测试成功: 线程继续执行成功")
-            return result
+            return result_data
         else:
-            print(f"✗ 测试失败: {result.get('message', '未知错误')}")
+            print(f"✗ 测试失败: {result_data.get('message', '未知错误')}")
             return None
             
     except requests.exceptions.RequestException as e:

@@ -105,7 +105,7 @@ async def chat_stream(request: ChatRequest):
 
     async def stream_generator():
         # 发送开始处理的状态
-        yield f"data: {json.dumps({'type': 'thought', 'content': '开始处理您的请求...', 'thread_id': thread_id})}\n\n"
+        yield f"data: {json.dumps({'type': 'thought', 'content': '开始处理您的请求...', 'thread_id': })}\n\n"
         
         # 用于跟踪是否已发送工具调用消息
         tool_call_sent = False
@@ -186,47 +186,65 @@ async def continue_thread(confirmation: ToolConfirmation):
             # Use the correct resume value based on approval
             if confirmation.approved:
                 # Resume execution to actually run the tools
-                result = agent_executor.invoke(None, config=config)
+                # Use streaming for consistency
+                async def stream_generator():
+                    try:
+                        async for chunk in agent_executor.astream(None, config=config, stream_mode="messages"):
+                            if isinstance(chunk, tuple) and len(chunk) >= 2:
+                                message = chunk[0]
+                                if isinstance(message, ToolMessage):
+                                    yield f"data: {json.dumps({'type': 'tool_result', 'content': str(message.content), 'thread_id': thread_id})}\n\n"
+                                elif isinstance(message, AIMessageChunk) and message.content:
+                                    yield f"data: {json.dumps({'type': 'content', 'content': message.content, 'thread_id': thread_id})}\n\n"
+                            elif isinstance(chunk, ToolMessage):
+                                yield f"data: {json.dumps({'type': 'tool_result', 'content': str(chunk.content), 'thread_id': thread_id})}\n\n"
+                            elif isinstance(chunk, AIMessageChunk) and chunk.content:
+                                yield f"data: {json.dumps({'type': 'content', 'content': chunk.content, 'thread_id': thread_id})}\n\n"
+                    except Exception as e:
+                        print(f"Error during streaming continuation: {e}")
+                        yield f"data: {json.dumps({'type': 'thought', 'content': f'处理出错: {str(e)}', 'thread_id': thread_id})}\n\n"
+                
+                return StreamingResponse(stream_generator(), media_type="text/event-stream")
             else:
                 # For rejection, we need to handle it differently
                 # We'll send a message back to the LLM to continue without tool execution
-                result = agent_executor.invoke(
-                    {"messages": [("user", "User rejected the tool execution. Please continue without using the tool and provide a response based on your existing knowledge.")]}, 
-                    config=config
-                )
+                async def stream_generator():
+                    try:
+                        rejection_input = {"messages": [("user", "User rejected the tool execution. Please continue without using the tool and provide a response based on your existing knowledge.")]}
+                        async for chunk in agent_executor.astream(rejection_input, config=config, stream_mode="messages"):
+                            if isinstance(chunk, tuple) and len(chunk) >= 2:
+                                message = chunk[0]
+                                if isinstance(message, AIMessageChunk) and message.content:
+                                    yield f"data: {json.dumps({'type': 'content', 'content': message.content, 'thread_id': thread_id})}\n\n"
+                            elif isinstance(chunk, AIMessageChunk) and chunk.content:
+                                yield f"data: {json.dumps({'type': 'content', 'content': chunk.content, 'thread_id': thread_id})}\n\n"
+                    except Exception as e:
+                        print(f"Error during streaming continuation: {e}")
+                        yield f"data: {json.dumps({'type': 'thought', 'content': f'处理出错: {str(e)}', 'thread_id': thread_id})}\n\n"
+                
+                return StreamingResponse(stream_generator(), media_type="text/event-stream")
         else:
             # If there's no interrupt, just return the current state
-            result = {"messages": state.values["messages"]}
-        
-        # 获取工具执行结果
-        tool_result = None
-        final_response = None
-        
-        if result and "messages" in result:
-            # Look for the last ToolMessage in the messages
-            for message in reversed(result["messages"]):
-                if isinstance(message, ToolMessage):
-                    tool_result = str(message.content)
-                    break
+            messages = state.values["messages"]
+            # Return the final response through streaming for consistency
+            async def stream_generator():
+                for message in messages:
+                    if hasattr(message, 'content') and message.content:
+                        # Check if it's a tool message or AI message
+                        if isinstance(message, ToolMessage):
+                            yield f"data: {json.dumps({'type': 'tool_result', 'content': str(message.content), 'thread_id': thread_id})}\n\n"
+                        else:
+                            yield f"data: {json.dumps({'type': 'content', 'content': str(message.content), 'thread_id': thread_id})}\n\n"
             
-            # Get the final AI response
-            for message in reversed(result["messages"]):
-                if hasattr(message, 'content') and message.content and not isinstance(message, ToolMessage):
-                    final_response = str(message.content)
-                    break
-        
-        return {
-            "status": "success",
-            "message": "工具调用已处理",
-            "thread_id": thread_id,
-            "result": tool_result,
-            "final_response": final_response,
-            "approved": confirmation.approved
-        }
+            return StreamingResponse(stream_generator(), media_type="text/event-stream")
+            
     except Exception as e:
         print(f"Error in continue_thread: {e}")
-        return {"status": "error", "message": f"继续执行失败: {str(e)}"}
-
+        # Return error through streaming for consistency
+        async def error_generator():
+            yield f"data: {json.dumps({'type': 'thought', 'content': f'继续执行失败: {str(e)}', 'thread_id': thread_id})}\n\n"
+        
+        return StreamingResponse(error_generator(), media_type="text/event-stream")
 
 # --- 5. 启动服务器 ---
 if __name__ == "__main__":

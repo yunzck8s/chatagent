@@ -360,6 +360,9 @@
         }
         
         try {
+            // Create a new bot paragraph for the response
+            const botParagraph = appendMessage('机器人', '', 'bot-message', true);
+            
             const response = await fetch('/continue_thread', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -373,26 +376,36 @@
                 })
             });
             
-            const result = await response.json();
-            console.log('Tool confirmation result:', result);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             
-            if (result.status === 'success') {
-                appendMessage('系统', `工具 ${pendingToolCall.tool_name} 已${approved ? '批准' : '拒绝'}执行`, 'thought-message');
-                // 显示工具执行结果
-                if (result.result && approved) {
-                    const formattedResult = `执行结果:\n${String(result.result).substring(0, 300)}...`;
-                    appendMessage('工具', formattedResult, 'tool-result-message');
-                }
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            botParagraph.innerHTML = '<strong>机器人:</strong> ';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
                 
-                // 显示最终的AI响应
-                if (result.final_response && approved) {
-                    // 创建新的机器人消息段落来显示最终响应
-                    const botParagraph = appendMessage('机器人', '', 'bot-message', true);
-                    botParagraph.innerHTML += result.final_response.replace(/\n/g, '<br>');
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n\n');
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const jsonData = JSON.parse(line.substring(6));
+                        
+                        if (jsonData.type === 'content') {
+                            botParagraph.innerHTML += jsonData.content.replace(/\n/g, '<br>');
+                        } else if (jsonData.type === 'tool_result') {
+                            const formattedResult = `执行结果:\n${String(jsonData.content).substring(0, 300)}...`;
+                            appendMessage('工具', formattedResult, 'tool-result-message');
+                        } else if (jsonData.type === 'thought') {
+                            appendMessage('思考', jsonData.content, 'thought-message');
+                        }
+                    }
                 }
-            } else {
-                appendMessage('系统', `工具确认失败: ${result.message}`, 'error-message');
             }
+            
+            appendMessage('系统', `工具 ${pendingToolCall.tool_name} 已${approved ? '批准' : '拒绝'}执行`, 'thought-message');
         } catch (error) {
             console.error('Tool confirmation error:', error);
             appendMessage('系统', '工具确认过程中发生错误: ' + error.message, 'error-message');
