@@ -8,7 +8,6 @@ from typing import Optional, Callable, List, Dict, Any
 from langgraph.checkpoint.memory import InMemorySaver
 # 用于加载 .env 文件中的环境变量
 from dotenv import load_dotenv
-
 # LangGraph 和 LangChain 的核心组件
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
@@ -20,23 +19,36 @@ from src.tools.tavily import get_tavily_tool
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
 from langchain_core.tools import BaseTool, tool as create_tool
+# MCP client for external tools
+from langchain_mcp_adapters import client
+
 # 加载环境变量
 load_dotenv()
 
+
 def book_hotel(hotel_name: str):
-   """Book a hotel"""
-   return f"Successfully booked a stay at {hotel_name}."
+    """Book a hotel"""
+    return f"Successfully booked a stay at {hotel_name}."
+
 
 # --- 1. 初始化 ---
 app = FastAPI()
 # checkpointer 用于在内存中保存每个会话的状态
 checkpointer = InMemorySaver()
 
-# Get the tools without custom interrupt wrappers
-tools = [
-    get_tavily_tool(),  # Tavily tool
-    book_hotel,         # book_hotel function
-]
+# Initialize tools list
+tools = []
+
+# Initialize MCP client
+mcp_client = client.MultiServerMCPClient(
+    {
+        "naocs": {
+            # Ensure you start your weather server on port 8000
+            "url": "http://192.168.1.117:8080",
+            "transport": "streamable_http",
+        }
+    }
+)
 
 # 存储活动的 agent executors
 active_agents = {}
@@ -72,11 +84,31 @@ def get_models():
     return get_available_models()
 
 
+# Initialize tools asynchronously
+async def initialize_tools():
+    global tools
+    try:
+        # Get tools from MCP client
+        mcp_tools = await mcp_client.get_tools()
+        # Combine with local tools
+        tools = mcp_tools + [get_tavily_tool(), book_hotel]
+        print(f"Successfully initialized {len(tools)} tools")
+    except Exception as e:
+        print(f"Failed to initialize MCP tools: {e}")
+        # Fallback to local tools only
+        tools = [get_tavily_tool(), book_hotel]
+        print("Using fallback local tools only")
+
+
 @app.post("/chat")
 async def chat_stream(request: ChatRequest):
     """
     使用 create_react_agent 处理聊天请求，并以 messages 模式流式返回结果。
     """
+    # Initialize tools if not already done
+    if not tools:
+        await initialize_tools()
+    
     # 1. 初始化模型和 Agent
     try:
         selected_llm = init_model(request.provider, request.model)
@@ -245,6 +277,7 @@ async def continue_thread(confirmation: ToolConfirmation):
             yield f"data: {json.dumps({'type': 'thought', 'content': f'继续执行失败: {str(e)}', 'thread_id': thread_id})}\n\n"
         
         return StreamingResponse(error_generator(), media_type="text/event-stream")
+
 
 # --- 5. 启动服务器 ---
 if __name__ == "__main__":

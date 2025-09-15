@@ -18,5 +18,8 @@ langchain-ollama>=0.1.0
 # Tools
 tavily-python>=0.3.0
 
+# MCP Adapters for external tools
+langchain-mcp-adapters>=0.1.0
+
 # Environment management
 python-dotenv>=1.0.0
