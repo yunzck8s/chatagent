@@ -1,109 +1,107 @@
 # ChatAgent
 
-ChatAgent is a lightweight conversational AI application designed to integrate with various language model providers and external tools. It provides a flexible and extensible framework for building agent-based interactions with human-in-the-loop capabilities.
+ChatAgent 是一个轻量级的对话式 AI 应用程序，旨在与各种语言模型提供商和外部工具集成。它提供了一个灵活且可扩展的框架，用于构建具有人类参与环路功能的基于代理的交互。
 
-## Table of Contents
+## 目录
 
-- [Features](#features)
-- [Technology Stack](#technology-stack)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [API Endpoints](#api-endpoints)
-- [Project Structure](#project-structure)
-- [Human-in-the-Loop Workflow](#human-in-the-loop-workflow)
-- [Testing](#testing)
-- [Contributing](#contributing)
-- [License](#license)
+- [功能特性](#功能特性)
+- [技术栈](#技术栈)
+- [先决条件](#先决条件)
+- [安装](#安装)
+- [配置](#配置)
+- [使用方法](#使用方法)
+- [API 端点](#api-端点)
+- [项目结构](#项目结构)
+- [人类参与环路工作流](#人类参与环路工作流)
+- [测试](#测试)
+- [贡献](#贡献)
+- [许可证](#许可证)
 
-## Features
+## 功能特性
 
-- REST API interface via FastAPI
-- Support for multiple LLM providers (Ollama, with extensible architecture for OpenAI, Anthropic, etc.)
-- Integration with Tavily search tool
-- Modular agent architecture (ReAct pattern implemented)
-- Human-in-the-loop workflow for tool execution with confirmation dialogs
-- Real-time streaming responses using Server-Sent Events (SSE)
-- Web-based chat interface with model switching capabilities
+- 通过 FastAPI 提供 REST API 接口
+- 支持多种 LLM 提供商（Ollama，具有扩展到 OpenAI、Anthropic 等其他提供商的架构）
+- 集成 Tavily 搜索工具
+- 模块化代理架构（实现 ReAct 模式）
+- 具有确认对话框的工具执行人类参与环路工作流
+- 使用服务器发送事件 (SSE) 的实时流式响应
+- 具有模型切换功能的基于 Web 的聊天界面
+- 集成 MCP (Model Connection Protocol) 工具支持
 
-## Technology Stack
+## 技术栈
 
-- **Backend**: Python, FastAPI, LangChain, LangGraph
-- **Frontend**: HTML, CSS, Vanilla JavaScript
-- **AI/ML**: Ollama (primary), with support for extension to other providers
-- **Tools**: Tavily search API
-- **Deployment**: Uvicorn
+- **后端**: Python, FastAPI, LangChain, LangGraph
+- **前端**: HTML, CSS, Vanilla JavaScript
+- **AI/ML**: Ollama (主要), 支持扩展到其他提供商
+- **工具**: Tavily 搜索 API, MCP 工具
+- **部署**: Uvicorn
+- **依赖管理**: uv
 
-## Prerequisites
+## 先决条件
 
-- Python 3.9 or higher
-- pip (Python package installer)
-- Virtual environment tool (venv or virtualenv)
-- Ollama (for local LLM support)
-- Tavily API key (for search functionality)
+- Python 3.12 或更高版本
+- uv (Python 包管理器)
+- Ollama (用于本地 LLM 支持)
+- Tavily API 密钥 (用于搜索功能)
 
-## Installation
+## 安装
 
-1. Clone the repository:
+1. 克隆仓库：
    ```bash
    git clone <repository-url>
    cd chatagent
    ```
 
-2. Create a virtual environment:
+2. 使用 uv 安装依赖：
    ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   uv sync
    ```
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+## 配置
 
-## Configuration
-
-1. Create a `.env` file in the project root with the following variables:
+1. 在项目根目录创建一个 `.env` 文件，包含以下变量：
    ```env
    TAVILY_API_KEY=your_tavily_api_key_here
-   OLLAMA_BASE_URL=http://localhost:11434  # Default Ollama URL
+   OLLAMA_BASE_URL=http://localhost:11434  # 默认 Ollama URL
+   DEEPSEEK_API_KEY=your_deepseek_api_key_here  # 可选，用于 DeepSeek 模型
    ```
 
-2. Ensure Ollama is running and the required models are pulled:
+2. 确保 Ollama 正在运行并且已拉取所需模型：
    ```bash
-   ollama pull qwen3:8b  # Or any other model you want to use
+   ollama pull qwen3:8b  # 或任何你想使用的其他模型
    ```
 
-## Usage
+3. 如需使用 MCP 工具，请确保相应的 MCP 服务器正在运行
 
-### Development Server
+## 使用方法
 
-Start the development server with hot reloading:
+### 开发服务器
+
+使用热重载启动开发服务器：
 ```bash
-uvicorn main:app --reload
+uv run python -m uvicorn main:app --reload
 ```
 
-### Production Server
+### 生产服务器
 
-Start the production server:
+启动生产服务器：
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
+uv run python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-The application will be available at `http://localhost:8000`.
+应用程序将在 `http://localhost:8000` 上可用。
 
-## API Endpoints
+## API 端点
 
 ### `GET /`
 
-Serves the main chat interface (HTML page).
+提供主聊天界面 (HTML 页面)。
 
 ### `GET /models`
 
-Returns a list of available models grouped by provider.
+返回按提供商分组的可用模型列表。
 
-**Response:**
+**响应：**
 ```json
 {
   "ollama": ["qwen3:8b", "llama3:8b", ...],
@@ -113,9 +111,9 @@ Returns a list of available models grouped by provider.
 
 ### `POST /chat`
 
-Processes chat messages and streams responses.
+处理聊天消息并流式传输响应。
 
-**Request Body:**
+**请求体：**
 ```json
 {
   "text": "Your message here",
@@ -125,18 +123,18 @@ Processes chat messages and streams responses.
 }
 ```
 
-**Response:**
-Streams Server-Sent Events with different message types:
-- `thought`: Processing status updates
-- `content`: AI-generated content
-- `tool_request`: Tool execution requests requiring human confirmation
-- `tool_result`: Results from executed tools
+**响应：**
+流式传输具有不同类型消息的服务器发送事件：
+- `thought`: 处理状态更新
+- `content`: AI 生成的内容
+- `tool_request`: 需要人类确认的工具执行请求
+- `tool_result`: 已执行工具的结果
 
 ### `POST /continue_thread`
 
-Continues execution after human approval of tool requests.
+在人类批准工具请求后继续执行。
 
-**Request Body:**
+**请求体：**
 ```json
 {
   "thread_id": "uuid",
@@ -150,148 +148,158 @@ Continues execution after human approval of tool requests.
 }
 ```
 
-## Project Structure
+## 项目结构
 
 ```
 chatagent/
-├── main.py                 # FastAPI application entry point
-├── requirements.txt        # Python dependencies
-├── .env                    # Environment variables (not in version control)
-├── .gitignore              # Git ignore file
-├── README.md               # This file
+├── main.py                 # FastAPI 应用程序入口点
+├── pyproject.toml          # Python 依赖配置 (uv)
+├── uv.lock                 # uv 锁文件
+├── .env                    # 环境变量 (不在版本控制中)
+├── .gitignore              # Git 忽略文件
+├── README.md               # 本文件
 ├── src/
-│   ├── index.html          # Chat interface
-│   ├── models/             # Language model provider implementations
+│   ├── index.html          # 聊天界面
+│   ├── models/             # 语言模型提供商实现
 │   │   ├── __init__.py
 │   │   ├── ollama_provider.py
 │   │   └── deepseek_provider.py
 │   ├── tools/
 │   │   ├── __init__.py
-│   │   └── tavily.py       # Tavily search tool integration
+│   │   ├── tavily.py       # Tavily 搜索工具集成
+│   │   └── math_server.py  # MCP 数学工具服务器
 │   └── agent/
 │       ├── __init__.py
-│       └── react.py        # ReAct agent pattern implementation
+│       └── react.py        # ReAct 代理模式实现
 └── test/
-    └── test_interrupt.py   # Test script for human-in-the-loop workflow
+    ├── test_interrupt.py   # 人类参与环路工作流测试脚本
+    └── test_mcp_integration.py  # MCP 集成测试脚本
 ```
 
-## Human-in-the-Loop Workflow
+## 人类参与环路工作流
 
-The ChatAgent implements a human-in-the-loop workflow for tool execution to ensure safety and user control:
+ChatAgent 实现了工具执行的人类参与环路工作流，以确保安全性和用户控制：
 
-1. **Agent Processing**: When the AI agent determines a tool needs to be executed, it interrupts before the actual execution.
+1. **代理处理**: 当 AI 代理确定需要执行工具时，它会在实际执行前中断。
 
-2. **Tool Request**: The system sends a `tool_request` message to the frontend containing:
-   - Tool name
-   - Tool parameters
+2. **工具请求**: 系统向前端发送包含以下内容的 `tool_request` 消息：
+   - 工具名称
+   - 工具参数
 
-3. **User Confirmation**: The frontend displays a confirmation dialog showing:
-   - Tool name
-   - Tool parameters (editable)
-   - Approve/Reject buttons
+3. **用户确认**: 前端显示一个确认对话框，显示：
+   - 工具名称
+   - 工具参数 (可编辑)
+   - 批准/拒绝按钮
 
-4. **User Action**: The user can either:
-   - Approve the tool execution (with optional parameter editing)
-   - Reject the tool execution
+4. **用户操作**: 用户可以：
+   - 批准工具执行 (可选择编辑参数)
+   - 拒绝工具执行
 
-5. **Execution Continuation**: 
-   - If approved, the tool is executed and results are processed
-   - If rejected, the agent continues without tool execution
+5. **执行继续**: 
+   - 如果批准，执行工具并处理结果
+   - 如果拒绝，代理在不执行工具的情况下继续
 
-6. **Result Processing**: The tool results are incorporated into the agent's response generation.
+6. **结果处理**: 工具结果被整合到代理的响应生成中。
 
-This workflow ensures that potentially sensitive or costly tool operations require explicit user approval before execution.
+此工作流确保潜在的敏感或昂贵的工具操作在执行前需要明确的用户批准。
 
-## Testing
+## 测试
 
-### Automated Testing
+### 自动化测试
 
-Run the test script to verify the human-in-the-loop workflow:
+运行测试脚本以验证人类参与环路工作流：
 ```bash
-python test/test_interrupt.py
+uv run python test/test_interrupt.py
 ```
 
-This script:
-1. Sends a chat message that triggers a tool call
-2. Verifies the tool request is properly sent
-3. Simulates user approval
-4. Verifies the tool execution and result processing
+此脚本：
+1. 发送触发工具调用的聊天消息
+2. 验证工具请求是否正确发送
+3. 模拟用户批准
+4. 验证工具执行和结果处理
 
-### Manual Testing
+运行 MCP 集成测试：
+```bash
+uv run python test/test_mcp_integration.py
+```
 
-1. Start the server: `uvicorn main:app --reload`
-2. Open `http://localhost:8000` in your browser
-3. Send a message that would trigger a tool call (e.g., "Search for information about artificial intelligence")
-4. Observe the tool confirmation dialog
-5. Approve or reject the tool execution
-6. Verify the response behavior
+### 手动测试
 
-## Contributing
+1. 启动服务器：`uv run python -m uvicorn main:app --reload`
+2. 在浏览器中打开 `http://localhost:8000`
+3. 发送会触发工具调用的消息 (例如，"What is 15 multiplied by 4?" 或 "Search for information about artificial intelligence")
+4. 观察工具确认对话框
+5. 批准或拒绝工具执行
+6. 验证响应行为
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Commit your changes: `git commit -am 'Add new feature'`
-4. Push to the branch: `git push origin feature-name`
-5. Create a pull request
+## 贡献
 
-## License
+1. Fork 仓库
+2. 创建功能分支：`git checkout -b feature-name`
+3. 提交更改：`git commit -am 'Add new feature'`
+4. 推送到分支：`git push origin feature-name`
+5. 创建拉取请求
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## 许可证
 
-## Troubleshooting
+本项目采用 MIT 许可证 - 详情请见 [LICENSE](LICENSE) 文件。
 
-### Common Issues
+## 故障排除
 
-1. **"Module not found" errors**: Ensure you've activated your virtual environment and installed all dependencies.
+### 常见问题
 
-2. **Ollama connection errors**: Verify Ollama is running and accessible at the configured URL.
+1. **"Module not found" 错误**: 确保已激活虚拟环境并安装了所有依赖项。
 
-3. **Tavily API errors**: Check that your TAVILY_API_KEY is correctly set in the `.env` file.
+2. **Ollama 连接错误**: 验证 Ollama 是否正在运行并且在配置的 URL 上可访问。
 
-4. **Tool execution not interrupting**: Ensure you're using `create_react_agent` with `interrupt_before=["tools"]` parameter.
+3. **Tavily API 错误**: 检查 `.env` 文件中的 TAVILY_API_KEY 是否正确设置。
 
-### Debugging Tips
+4. **工具执行未中断**: 确保使用带有 `interrupt_before=["tools"]` 参数的 `create_react_agent`。
 
-1. Check the terminal output for error messages
-2. Use browser developer tools to inspect network requests
-3. Add logging statements to trace execution flow
-4. Verify the thread_id is consistent between requests
+5. **MCP 工具未加载**: 确保 MCP 服务器正在运行并且配置正确。
 
-## Architecture Notes
+### 调试技巧
 
-### Backend Architecture
+1. 检查终端输出中的错误消息
+2. 使用浏览器开发者工具检查网络请求
+3. 添加日志语句以跟踪执行流程
+4. 验证请求之间 thread_id 的一致性
 
-The backend follows a modular monolith pattern with the following key components:
+## 架构说明
 
-1. **FastAPI Layer**: Handles HTTP requests and responses
-2. **Model Providers**: Abstract different LLM providers (Ollama, DeepSeek, etc.)
-3. **Tools**: External integrations (Tavily search)
-4. **Agent Logic**: Orchestrates interactions using LangGraph
-5. **State Management**: Uses LangGraph's checkpointer for conversation state
+### 后端架构
 
-### Frontend Architecture
+后端遵循模块化单体模式，具有以下关键组件：
 
-The frontend is a single-page application with:
+1. **FastAPI 层**: 处理 HTTP 请求和响应
+2. **模型提供商**: 抽象不同的 LLM 提供商 (Ollama, DeepSeek 等)
+3. **工具**: 外部集成 (Tavily 搜索, MCP 工具)
+4. **代理逻辑**: 使用 LangGraph 编排交互
+5. **状态管理**: 使用 LangGraph 的检查点进行对话状态管理
 
-1. **Chat Interface**: Real-time messaging with streaming responses
-2. **Model Selection**: Dynamic provider and model switching
-3. **Tool Confirmation**: Modal dialogs for human-in-the-loop workflow
-4. **State Management**: Client-side tracking of conversation state
+### 前端架构
 
-### Data Flow
+前端是一个单页应用程序，具有：
 
-1. User sends message via frontend
-2. Frontend POSTs to `/chat` endpoint
-3. Backend initializes agent with selected model
-4. Agent processes message, potentially requesting tool execution
-5. If tool execution is needed, agent interrupts and sends tool request
-6. Backend streams tool request to frontend
-7. Frontend displays confirmation dialog
-8. User approves/rejects tool execution
-9. Frontend POSTs to `/continue_thread` with user decision
-10. Backend resumes agent execution based on user input
-11. Agent completes processing and generates final response
-12. Backend streams final response to frontend
-13. Frontend displays response to user
+1. **聊天界面**: 具有流式响应的实时消息传递
+2. **模型选择**: 动态提供商和模型切换
+3. **工具确认**: 人类参与环路工作流的模态对话框
+4. **状态管理**: 客户端会话状态跟踪
 
-This architecture ensures a responsive user experience while maintaining proper separation of concerns between components.
+### 数据流
+
+1. 用户通过前端发送消息
+2. 前端 POST 到 `/chat` 端点
+3. 后端使用选定模型初始化代理
+4. 代理处理消息，可能请求工具执行
+5. 如果需要工具执行，代理中断并发送工具请求
+6. 后端将工具请求流式传输到前端
+7. 前端显示确认对话框
+8. 用户批准/拒绝工具执行
+9. 前端将用户决定 POST 到 `/continue_thread`
+10. 后端根据用户输入恢复代理执行
+11. 代理完成处理并生成最终响应
+12. 后端将最终响应流式传输到前端
+13. 前端向用户显示响应
+
+此架构确保了响应迅速的用户体验，同时保持了组件之间的适当关注点分离。
