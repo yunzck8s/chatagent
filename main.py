@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 import json
 import uuid
-from typing import Optional
+from typing import Optional, Callable, List, Dict, Any
 from langgraph.checkpoint.memory import InMemorySaver
 # 用于加载 .env 文件中的环境变量
 from dotenv import load_dotenv
@@ -17,16 +17,29 @@ from langchain_core.messages import AIMessageChunk, ToolMessage
 # 从我们自己的模块中导入 "零件"
 from src.models import init_model, get_available_models
 from src.tools.tavily import get_tavily_tool
-
+from langchain_core.runnables import RunnableConfig
+from langgraph.types import Command
+from langchain_core.tools import BaseTool, tool as create_tool
 # 加载环境变量
 load_dotenv()
 
+def book_hotel(hotel_name: str):
+   """Book a hotel"""
+   return f"Successfully booked a stay at {hotel_name}."
+
 # --- 1. 初始化 ---
 app = FastAPI()
-tools = [get_tavily_tool()]
 # checkpointer 用于在内存中保存每个会话的状态
 checkpointer = InMemorySaver()
 
+# Get the tools without custom interrupt wrappers
+tools = [
+    get_tavily_tool(),  # Tavily tool
+    book_hotel,         # book_hotel function
+]
+
+# 存储活动的 agent executors
+active_agents = {}
 
 # --- 2. 定义数据模型 ---
 class ChatRequest(BaseModel):
@@ -35,6 +48,10 @@ class ChatRequest(BaseModel):
     model: str = "qwen3:8b"
     thread_id: Optional[str] = None
 
+class ToolConfirmation(BaseModel):
+    thread_id: str
+    approved: bool
+    tool_calls: Optional[List[Dict[str, Any]]] = None
 
 # --- 3. 加载前端 HTML ---
 try:
@@ -67,6 +84,7 @@ async def chat_stream(request: ChatRequest):
             model=selected_llm,
             tools=tools,
             checkpointer=checkpointer,
+            interrupt_before=["tools"]  # 在工具执行前中断
         )
     except Exception as e:
         print(f"模型初始化失败，使用备用模型: {e}")
@@ -75,10 +93,13 @@ async def chat_stream(request: ChatRequest):
             model=fallback_llm,
             tools=tools,
             checkpointer=checkpointer,
+            interrupt_before=["tools"]  # 在工具执行前中断
         )
 
     # 2. 准备输入和配置
     thread_id = request.thread_id or str(uuid.uuid4())
+    # 保存 agent executor 供后续使用
+    active_agents[thread_id] = agent_executor
     config = {"configurable": {"thread_id": thread_id}}
     graph_input = {"messages": [("user", request.text)]}
 
@@ -106,14 +127,16 @@ async def chat_stream(request: ChatRequest):
 
                         # 如果包含工具调用请求，只发送一次
                         if message.tool_calls and not tool_call_sent:
-                            tool_name = message.tool_calls[0]['name']
-                            yield f"data: {json.dumps({'type': 'thought', 'content': f'正在调用工具: {tool_name}...', 'thread_id': thread_id})}\n\n"
+                            tool_call = message.tool_calls[0]
+                            tool_name = tool_call['name']
+                            tool_args = tool_call['args']
+                            yield f"data: {json.dumps({'type': 'tool_request', 'tool_name': tool_name, 'arguments': tool_args, 'thread_id': thread_id})}\n\n"
                             tool_call_sent = True
 
                     # b. 检查消息块是否是工具的执行结果 (ToolMessage)
                     elif isinstance(message, ToolMessage):
                         # 将工具的返回结果作为 "tool_result" 类型发送
-                        yield f"data: {json.dumps({'type': 'tool_result', 'content': message.content, 'thread_id': thread_id})}\n\n"
+                        yield f"data: {json.dumps({'type': 'tool_result', 'content': str(message.content), 'thread_id': thread_id})}\n\n"
                         
                 elif isinstance(chunk, AIMessageChunk):
                     # 如果包含文本内容，则作为 "content" 类型发送
@@ -122,20 +145,87 @@ async def chat_stream(request: ChatRequest):
 
                     # 如果包含工具调用请求，只发送一次
                     if chunk.tool_calls and not tool_call_sent:
-                        tool_name = chunk.tool_calls[0]['name']
-                        yield f"data: {json.dumps({'type': 'thought', 'content': f'正在调用工具: {tool_name}...', 'thread_id': thread_id})}\n\n"
+                        tool_call = chunk.tool_calls[0]
+                        tool_name = tool_call['name']
+                        tool_args = tool_call['args']
+                        yield f"data: {json.dumps({'type': 'tool_request', 'tool_name': tool_name, 'arguments': tool_args, 'thread_id': thread_id})}\n\n"
                         tool_call_sent = True
 
                 # b. 检查消息块是否是工具的执行结果 (ToolMessage)
                 elif isinstance(chunk, ToolMessage):
                     # 将工具的返回结果作为 "tool_result" 类型发送
-                    yield f"data: {json.dumps({'type': 'tool_result', 'content': chunk.content, 'thread_id': thread_id})}\n\n"
+                    yield f"data: {json.dumps({'type': 'tool_result', 'content': str(chunk.content), 'thread_id': thread_id})}\n\n"
                     
         except Exception as e:
             print(f"Error during streaming: {e}")  # 调试信息
             yield f"data: {json.dumps({'type': 'thought', 'content': f'处理出错: {str(e)}', 'thread_id': thread_id})}\n\n"
 
     return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
+
+@app.post("/continue_thread")
+async def continue_thread(confirmation: ToolConfirmation):
+    """
+    继续执行被中断的线程
+    """
+    thread_id = confirmation.thread_id
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    # 检查是否有活动的 agent
+    if thread_id not in active_agents:
+        return {"status": "error", "message": "未找到对应的 agent"}
+    
+    agent_executor = active_agents[thread_id]
+    
+    try:
+        # Check if there's an interrupt
+        state = agent_executor.get_state(config)
+        
+        # If there's an interrupt, continue with the appropriate command
+        if state.next:
+            # Use the correct resume value based on approval
+            if confirmation.approved:
+                # Resume execution to actually run the tools
+                result = agent_executor.invoke(None, config=config)
+            else:
+                # For rejection, we need to handle it differently
+                # We'll send a message back to the LLM to continue without tool execution
+                result = agent_executor.invoke(
+                    {"messages": [("user", "User rejected the tool execution. Please continue without using the tool and provide a response based on your existing knowledge.")]}, 
+                    config=config
+                )
+        else:
+            # If there's no interrupt, just return the current state
+            result = {"messages": state.values["messages"]}
+        
+        # 获取工具执行结果
+        tool_result = None
+        final_response = None
+        
+        if result and "messages" in result:
+            # Look for the last ToolMessage in the messages
+            for message in reversed(result["messages"]):
+                if isinstance(message, ToolMessage):
+                    tool_result = str(message.content)
+                    break
+            
+            # Get the final AI response
+            for message in reversed(result["messages"]):
+                if hasattr(message, 'content') and message.content and not isinstance(message, ToolMessage):
+                    final_response = str(message.content)
+                    break
+        
+        return {
+            "status": "success",
+            "message": "工具调用已处理",
+            "thread_id": thread_id,
+            "result": tool_result,
+            "final_response": final_response,
+            "approved": confirmation.approved
+        }
+    except Exception as e:
+        print(f"Error in continue_thread: {e}")
+        return {"status": "error", "message": f"继续执行失败: {str(e)}"}
 
 
 # --- 5. 启动服务器 ---
