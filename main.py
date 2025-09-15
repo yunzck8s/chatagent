@@ -105,7 +105,7 @@ async def chat_stream(request: ChatRequest):
 
     async def stream_generator():
         # 发送开始处理的状态
-        yield f"data: {json.dumps({'type': 'thought', 'content': '开始处理您的请求...', 'thread_id': })}\n\n"
+        yield f"data: {json.dumps({'type': 'thought', 'content': '开始处理您的请求...', 'thread_id': thread_id})}\n\n"
         
         # 用于跟踪是否已发送工具调用消息
         tool_call_sent = False
